@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 
-// --- Base de Datos de Catálogo ---
-const CATALOG = {
+// --- Configuración Inicial ---
+const DEFAULT_CATALOG = {
     categories: [
         { id: 'AUTOS', name: 'Autos', module: 'vehicle' },
         { id: 'SCOOTER', name: 'Scooter - Motorbikes', module: 'vehicle' },
@@ -14,20 +14,20 @@ const CATALOG = {
         { id: 'BOAT', name: 'Boat Rental', module: 'tour' }
     ],
     products: [
-        { name: 'Citroen C3 / Peugeot 208', cat: 'AUTOS', price: 50, module: 'vehicle' },
-        { name: 'NEW Toyota Aygo X BASIC', cat: 'AUTOS', price: 50, module: 'vehicle' },
-        { name: 'Toyota Aygo BASIC', cat: 'AUTOS', price: 45, module: 'vehicle' },
-        { name: 'TOYOTA AYGO OPEN', cat: 'AUTOS', price: 50, module: 'vehicle' },
-        { name: 'Piaggio Liberty 125cc', cat: 'SCOOTER', price: 35, module: 'vehicle' },
-        { name: 'PIAGGIO MEDLEY 125CC', cat: 'SCOOTER', price: 40, module: 'vehicle' },
-        { name: 'City Bike', cat: 'BIKE_NORMAL', price: 6, module: 'bike' },
-        { name: 'E-Bike City Bike', cat: 'BIKE_EB_CITY', price: 15, module: 'bike' },
-        { name: 'E-CITY BIKE Nuevo Modelo', cat: 'BIKE_EB_CITY', price: 20, module: 'bike' },
-        { name: 'E-Mountain Bike EMB', cat: 'BIKE_EMTB', price: 20, module: 'bike' },
-        { name: 'Discovery Tour 2 HOURS', cat: 'TOURS', price: 65, module: 'tour' },
-        { name: 'Tour Catamaran Palma', cat: 'TOURS', price: 35, module: 'tour' },
-        { name: 'Paddle Surf SUP', cat: 'PADDLE', price: 12, module: 'tour' },
-        { name: 'Boat Rental B450 Theia', cat: 'BOAT', price: 200, module: 'tour' }
+        { id: '1', name: 'Citroen C3 / Peugeot 208', cat: 'AUTOS', price: 50, module: 'vehicle' },
+        { id: '2', name: 'NEW Toyota Aygo X BASIC', cat: 'AUTOS', price: 50, module: 'vehicle' },
+        { id: '3', name: 'Toyota Aygo BASIC', cat: 'AUTOS', price: 45, module: 'vehicle' },
+        { id: '4', name: 'TOYOTA AYGO OPEN', cat: 'AUTOS', price: 50, module: 'vehicle' },
+        { id: '5', name: 'Piaggio Liberty 125cc', cat: 'SCOOTER', price: 35, module: 'vehicle' },
+        { id: '6', name: 'PIAGGIO MEDLEY 125CC', cat: 'SCOOTER', price: 40, module: 'vehicle' },
+        { id: '7', name: 'City Bike', cat: 'BIKE_NORMAL', price: 6, module: 'bike' },
+        { id: '8', name: 'E-Bike City Bike', cat: 'BIKE_EB_CITY', price: 15, module: 'bike' },
+        { id: '9', name: 'E-CITY BIKE Nuevo Modelo', cat: 'BIKE_EB_CITY', price: 20, module: 'bike' },
+        { id: '10', name: 'E-Mountain Bike EMB', cat: 'BIKE_EMTB', price: 20, module: 'bike' },
+        { id: '11', name: 'Discovery Tour 2 HOURS', cat: 'TOURS', price: 65, module: 'tour' },
+        { id: '12', name: 'Tour Catamaran Palma', cat: 'TOURS', price: 35, module: 'tour' },
+        { id: '13', name: 'Paddle Surf SUP', cat: 'PADDLE', price: 12, module: 'tour' },
+        { id: '14', name: 'Boat Rental B450 Theia', cat: 'BOAT', price: 200, module: 'tour' }
     ]
 };
 
@@ -58,15 +58,8 @@ interface Contract {
     phone: string;
     dni?: string;
     country?: string;
-    license?: string;
-    licenseExpiry?: string;
-    licenseCategory?: string;
-    hotelName?: string;
-    roomNumber?: string;
-    homeAddress?: string;
     type: string;
     product: string;
-    id_extra?: string;
     start_date: string;
     start_time: string;
     end_date: string;
@@ -74,10 +67,10 @@ interface Contract {
     duration: number;
     quantity: number;
     price_unit: number;
-    extras_total: number;
-    extras_list: string[];
     total: number;
     notes: string;
+    synced?: boolean; 
+    deleted?: boolean; // Nuevo: marca el contrato como eliminado lógicamente
 }
 
 declare global {
@@ -99,6 +92,8 @@ declare global {
         updateProductList: (module: ModuleType, catId: string) => void;
         syncAllToCloud: () => Promise<void>;
         contactIT: () => void;
+        updateCatalogPrice: (id: string, newPrice: string) => void;
+        toggleCatalogEdit: () => void;
     }
     var lucide: any;
     var QRCode: any;
@@ -107,9 +102,13 @@ declare global {
 
 // --- Global State ---
 const savedSettings = localStorage.getItem('ecorent_settings');
+const savedCatalog = localStorage.getItem('ecorent_catalog');
+
 let state = {
     currentView: 'dashboard',
     editingId: null as string | null,
+    catalog: (savedCatalog ? JSON.parse(savedCatalog) : DEFAULT_CATALOG),
+    catalogEditMode: false,
     contracts: JSON.parse(localStorage.getItem('ecorent_contracts') || '[]') as Contract[],
     settings: (savedSettings ? JSON.parse(savedSettings) : { gasUrl: DEFAULT_GAS_URL }) as Settings,
     lastId: parseInt(localStorage.getItem('ecorent_last_id') || '0'),
@@ -186,8 +185,8 @@ window.fillWithExampleData = () => {
     const form = document.getElementById('main-form') as HTMLFormElement;
     if (!form) { alert("Entra en un módulo de alquiler primero."); return; }
     const examples: Record<string, string> = {
-        firstName: "Cliente", lastName: "Ejemplo", email: "ejemplo@ecorent.com", phone: "+34 600000000",
-        country: "España", dni: "12345678Z", license: "B-12345678", price_unit: "50", quantity: "1", duration: "2"
+        firstName: "Alejandro", lastName: "García", email: "ejemplo@ecorent.com", phone: "+34 600000000",
+        country: "España", dni: "12345678Z", price_unit: "50", quantity: "1", duration: "2"
     };
     Object.keys(examples).forEach(key => {
         const input = form.querySelector(`[name="${key}"]`) as HTMLInputElement;
@@ -196,9 +195,18 @@ window.fillWithExampleData = () => {
     window.recalculateTotals();
 };
 
-const isSummer = () => { const month = new Date().getMonth(); return month >= 3 && month <= 9; };
-const getRecommendedReturnTime = (module: ModuleType) => isSummer() ? (module === 'vehicle' ? '20:00' : '21:00') : '07:00';
-const generateContractNumber = () => { state.lastId++; return state.lastId.toString().padStart(6, '0'); };
+window.toggleCatalogEdit = () => {
+    state.catalogEditMode = !state.catalogEditMode;
+    render();
+};
+
+window.updateCatalogPrice = (id: string, newPrice: string) => {
+    const pIndex = state.catalog.products.findIndex((p: any) => p.id === id);
+    if (pIndex !== -1) {
+        state.catalog.products[pIndex].price = parseFloat(newPrice) || 0;
+        localStorage.setItem('ecorent_catalog', JSON.stringify(state.catalog));
+    }
+};
 
 const saveState = () => {
     localStorage.setItem('ecorent_contracts', JSON.stringify(state.contracts));
@@ -216,49 +224,97 @@ const updateSyncStatus = () => {
 const syncToSheets = async (contract: Contract) => {
     if (!state.settings.gasUrl) return false;
     try {
+        const cleanPhone = contract.phone.replace(/\s+/g, '');
         const payload = {
-            "Numero Contrato": contract.contractNumber, "FECHA": contract.createdAt, "FECHA MODIFICACION": contract.updatedAt || "",
-            "Nombre": contract.firstName, "Apellido": contract.lastName, "Email": contract.email, "Teléfono": contract.phone,
-            "País": contract.country, "DNI": contract.dni, "Modelo": contract.product, "Fecha Entrega": contract.start_date,
-            "Fecha Devolución": contract.end_date, "Días": contract.duration, "Precio/Día": contract.price_unit,
-            "Total": contract.total, "Gestión": COMPANY_INFO.owner
+            "numeroContrato": contract.contractNumber,
+            "fecha": contract.createdAt,
+            "nombre": contract.firstName,
+            "apellido": contract.lastName,
+            "email": contract.email,
+            "telefono": cleanPhone,
+            "pais": contract.country || "",
+            "dni": contract.dni || "",
+            "modelo": contract.product + (contract.deleted ? " [BORRADO]" : ""),
+            "matricula": "",
+            "tipoVehiculo": contract.type,
+            "fechaEntrega": contract.start_date,
+            "horaEntrega": contract.start_time,
+            "fechaDevolucion": contract.end_date || "",
+            "horaDevolucion": contract.end_time || "",
+            "numDias": contract.duration,
+            "precioTotal": contract.price_unit,
+            "total": contract.total,
+            "seguro": "",
+            "comentarios": contract.notes || ""
         };
-        await fetch(state.settings.gasUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        
+        await fetch(state.settings.gasUrl, { 
+            method: 'POST', 
+            mode: 'no-cors', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(payload) 
+        });
+        
+        contract.synced = true;
+        saveState();
         return true;
-    } catch (e) { return false; }
+    } catch (e) { 
+        console.error("Error en sincronización:", e);
+        return false; 
+    }
 };
 
 window.syncAllToCloud = async () => {
     if (!state.settings.gasUrl) { alert("Configura la URL de Apps Script."); return; }
     const btn = document.getElementById('sync-all-btn');
-    if (btn) btn.innerText = "Enviando...";
-    for (const c of state.contracts) await syncToSheets(c);
-    alert("Datos sincronizados con éxito.");
+    if (btn) btn.innerText = "Sincronizando...";
+    
+    // FILTRAR SOLO CONTRATOS NO SINCRONIZADOS
+    const pending = state.contracts.filter(c => !c.synced);
+    
+    if (pending.length === 0) {
+        alert("Todos los registros ya están en la nube.");
+        if (btn) btn.innerText = "Enviar al excel nube";
+        return;
+    }
+
+    let count = 0;
+    for (const c of pending) {
+        const success = await syncToSheets(c);
+        if (success) count++;
+    }
+    
+    alert(`Éxito: ${count} nuevos registros sincronizados.`);
     if (btn) btn.innerText = "Enviar al excel nube";
     render();
 };
 
-// --- Form Components ---
-const FormHeader = (title: string, colorClass: string, isEdit = false, contractNo = "") => `
-    <header class="flex items-center justify-between mb-8">
-        <button onclick="window.navigate('dashboard')" class="btn-icon bg-gray-100 text-gray-600"><i data-lucide="chevron-left"></i></button>
-        <h2 class="text-2xl font-extrabold text-${colorClass}-600 tracking-tight">${isEdit ? 'Modificar' : 'Nuevo'} ${title}</h2>
-        <div class="bg-${colorClass}-50 text-${colorClass}-700 px-4 py-1.5 rounded-full text-xs font-mono font-black border border-${colorClass}-200/50">#${contractNo || (state.lastId + 1).toString().padStart(6, '0')}</div>
-    </header>
-`;
-
-const ClientInfoForm = (data: Partial<Contract> = {}) => `
-    <div class="card p-8 space-y-6">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <input type="text" name="firstName" value="${data.firstName || ''}" placeholder="Nombre" required class="input-field">
-            <input type="text" name="lastName" value="${data.lastName || ''}" placeholder="Apellido" required class="input-field">
-            <input type="email" name="email" value="${data.email || ''}" placeholder="Email" required class="input-field">
-            <input type="tel" name="phone" value="${data.phone || ''}" placeholder="Teléfono" required class="input-field">
-            <input type="text" name="country" value="${data.country || ''}" placeholder="País" class="input-field">
-            <input type="text" name="dni" value="${data.dni || ''}" placeholder="DNI / Pasaporte" required class="input-field">
-        </div>
-    </div>
-`;
+window.deleteContract = async (id: string) => {
+    const confirmDelete = confirm("¿Estás SEGURO de que deseas eliminar este contrato? Esta acción marcará el registro como borrado y se notificará a la base de datos.");
+    
+    if (confirmDelete) {
+        const index = state.contracts.findIndex(c => c.id === id);
+        if (index !== -1) {
+            const contract = state.contracts[index];
+            const now = new Date().toLocaleString();
+            
+            // Marcar como eliminado y actualizar notas para auditoría
+            contract.deleted = true;
+            contract.notes = (contract.notes ? contract.notes + " | " : "") + `BORRADO EL ${now}`;
+            contract.synced = false; // Forzar resincronización para que aparezca el borrado en el Excel
+            
+            saveState();
+            
+            // Intentar sincronizar el borrado inmediatamente
+            if (state.settings.gasUrl) {
+                await syncToSheets(contract);
+            }
+            
+            alert("Contrato marcado como borrado.");
+            render();
+        }
+    }
+};
 
 const CommonAlquilerForm = (module: ModuleType, data: Partial<Contract> = {}) => {
     const isEdit = !!data.id;
@@ -269,16 +325,29 @@ const CommonAlquilerForm = (module: ModuleType, data: Partial<Contract> = {}) =>
 
     return `
         <div class="space-y-8 animate-fade-in">
-            ${FormHeader(labelTitle, color, isEdit, data.contractNumber)}
+            <header class="flex items-center justify-between mb-8">
+                <button onclick="window.navigate('dashboard')" class="btn-icon bg-gray-100 text-gray-600"><i data-lucide="chevron-left"></i></button>
+                <h2 class="text-2xl font-extrabold text-${color}-600 tracking-tight">${isEdit ? 'Modificar' : 'Nuevo'} ${labelTitle}</h2>
+                <div class="bg-${color}-50 text-${color}-700 px-4 py-1.5 rounded-full text-xs font-mono font-black border border-${color}-200/50">#${data.contractNumber || (state.lastId + 1).toString().padStart(6, '0')}</div>
+            </header>
             <form id="main-form" onsubmit="window.handleFormSubmit(event, '${module}')" class="space-y-8">
                 ${isEdit ? `<input type="hidden" name="id" value="${data.id}">` : ''}
-                ${ClientInfoForm(data)}
+                <div class="card p-8 space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <input type="text" name="firstName" value="${data.firstName || ''}" placeholder="Nombre" required class="input-field">
+                        <input type="text" name="lastName" value="${data.lastName || ''}" placeholder="Apellido" required class="input-field">
+                        <input type="email" name="email" value="${data.email || ''}" placeholder="Email" required class="input-field">
+                        <input type="tel" name="phone" value="${data.phone || ''}" placeholder="Teléfono" required class="input-field">
+                        <input type="text" name="country" value="${data.country || ''}" placeholder="País" class="input-field">
+                        <input type="text" name="dni" value="${data.dni || ''}" placeholder="DNI / Pasaporte" required class="input-field">
+                    </div>
+                </div>
                 
                 <div class="card p-8 space-y-6">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <select name="type" class="input-field" onchange="window.updateProductList('${module}', this.value)">
                             <option value="">Seleccionar tipo...</option>
-                            ${CATALOG.categories.filter(c => c.module === module).map(c => `<option value="${c.id}" ${data.type === c.id ? 'selected' : ''}>${c.name}</option>`).join('')}
+                            ${state.catalog.categories.filter((c: any) => c.module === module).map((c: any) => `<option value="${c.id}" ${data.type === c.id ? 'selected' : ''}>${c.name}</option>`).join('')}
                         </select>
                         <select name="product" id="product-select" class="input-field" required>
                             <option value="">Seleccionar modelo...</option>
@@ -287,10 +356,10 @@ const CommonAlquilerForm = (module: ModuleType, data: Partial<Contract> = {}) =>
                     </div>
 
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
-                        <div class="flex flex-col"><label class="text-[10px] font-bold opacity-50 uppercase ml-1">Cantidad</label><input type="number" name="quantity" value="${data.quantity || 1}" min="1" class="input-field" onchange="window.recalculateTotals()"></div>
-                        <div class="flex flex-col"><label class="text-[10px] font-bold opacity-50 uppercase ml-1">Fecha</label><input type="date" name="start_date" value="${data.start_date || today}" class="input-field" onchange="window.recalculateTotals()"></div>
-                        <div class="flex flex-col"><label class="text-[10px] font-bold opacity-50 uppercase ml-1">Hora</label><input type="time" name="start_time" value="${data.start_time || timeNow}" class="input-field"></div>
-                        <div class="flex flex-col"><label class="text-[10px] font-bold opacity-50 uppercase ml-1">${module === 'vehicle' ? 'Días' : 'Duración'}</label><input type="number" name="duration" value="${data.duration || 1}" class="input-field" onchange="window.recalculateTotals()"></div>
+                        <div class="flex flex-col"><label class="text-[10px] font-bold text-muted uppercase ml-1">Cantidad</label><input type="number" name="quantity" value="${data.quantity || 1}" min="1" class="input-field" onchange="window.recalculateTotals()"></div>
+                        <div class="flex flex-col"><label class="text-[10px] font-bold text-muted uppercase ml-1">Fecha</label><input type="date" name="start_date" value="${data.start_date || today}" class="input-field" onchange="window.recalculateTotals()"></div>
+                        <div class="flex flex-col"><label class="text-[10px] font-bold text-muted uppercase ml-1">Hora</label><input type="time" name="start_time" value="${data.start_time || timeNow}" class="input-field"></div>
+                        <div class="flex flex-col"><label class="text-[10px] font-bold text-muted uppercase ml-1">${module === 'vehicle' ? 'Días' : 'Duración'}</label><input type="number" name="duration" value="${data.duration || 1}" class="input-field" onchange="window.recalculateTotals()"></div>
                     </div>
                 </div>
 
@@ -313,11 +382,11 @@ window.updateProductList = (module: ModuleType, catId: string) => {
     const select = document.getElementById('product-select') as HTMLSelectElement;
     const priceInput = document.querySelector('input[name="price_unit"]') as HTMLInputElement;
     if (!select) return;
-    const filtered = CATALOG.products.filter(p => p.cat === catId);
+    const filtered = state.catalog.products.filter((p: any) => p.cat === catId);
     select.innerHTML = '<option value="">Seleccionar modelo...</option>' + 
-        filtered.map(p => `<option value="${p.name}" data-price="${p.price}">${p.name}</option>`).join('');
+        filtered.map((p: any) => `<option value="${p.name}" data-price="${p.price}">${p.name}</option>`).join('');
     
-    if (filtered.length > 0 && priceInput && !priceInput.value) {
+    if (filtered.length > 0 && priceInput) {
         priceInput.value = filtered[0].price.toString();
         window.recalculateTotals();
     }
@@ -368,7 +437,8 @@ window.handleFormSubmit = async (e: Event, module: ModuleType) => {
                 duration: parseFloat(formData.get('duration') as string) || 1,
                 quantity: parseFloat(formData.get('quantity') as string) || 1,
                 price_unit: parseFloat(formData.get('price_unit') as string) || 0,
-                total: parseFloat(totalStr)
+                total: parseFloat(totalStr),
+                synced: false // Al editar, marcamos como no sincronizado para que se actualice el Excel
             };
             state.contracts[index] = updated;
             saveState();
@@ -378,7 +448,7 @@ window.handleFormSubmit = async (e: Event, module: ModuleType) => {
     } else {
         const contract: Contract = {
             id: crypto.randomUUID(),
-            contractNumber: generateContractNumber(),
+            contractNumber: (state.lastId + 1).toString().padStart(6, '0'),
             createdAt: new Date().toISOString().split('T')[0],
             timestamp: Date.now(),
             module,
@@ -387,16 +457,17 @@ window.handleFormSubmit = async (e: Event, module: ModuleType) => {
             product: formData.get('product') as string,
             start_date: formData.get('start_date') as string,
             start_time: formData.get('start_time') as string,
-            end_date: formData.get('start_date') as string, // Simplificado para nuevo
+            end_date: formData.get('start_date') as string, 
             end_time: '20:00',
             duration: parseFloat(formData.get('duration') as string) || 1,
             quantity: parseFloat(formData.get('quantity') as string) || 1,
             price_unit: parseFloat(formData.get('price_unit') as string) || 0,
-            extras_total: 0,
-            extras_list: [],
             total: parseFloat(totalStr),
-            notes: ""
+            notes: "",
+            synced: false,
+            deleted: false
         };
+        state.lastId++;
         state.contracts.push(contract);
         saveState();
         await syncToSheets(contract);
@@ -405,13 +476,11 @@ window.handleFormSubmit = async (e: Event, module: ModuleType) => {
 };
 
 window.viewInvoice = (id: string) => { const c = state.contracts.find(x => x.id === id); if (c) window.showInvoice(c); };
-window.deleteContract = (id: string) => { if (confirm('¿Eliminar registro?')) { state.contracts = state.contracts.filter(c => c.id !== id); saveState(); render(); } };
 window.editContract = (id: string) => { state.editingId = id; render(); };
 
 window.showInvoice = (c: Contract) => {
     const container = document.getElementById('view-container');
     const color = c.module === 'vehicle' ? 'red-600' : (c.module === 'bike' ? 'primary' : 'blue-600');
-    
     container!.innerHTML = `
         <div class="space-y-8 animate-fade-in">
             <div class="flex justify-between items-center">
@@ -421,55 +490,26 @@ window.showInvoice = (c: Contract) => {
                     <button onclick="window.shareWhatsApp('${c.id}')" class="bg-green-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2"><i data-lucide="send" class="w-4 h-4"></i> WhatsApp</button>
                 </div>
             </div>
-            
             <div id="invoice-render-area" class="card p-12 bg-white max-w-2xl mx-auto space-y-8 border shadow-2xl">
+                ${c.deleted ? `<div class="bg-red-500 text-white text-center py-2 font-black rounded-xl uppercase tracking-widest text-xs">REGISTRO ELIMINADO</div>` : ''}
                 <div class="flex justify-between items-start border-b pb-8">
                     <div>
                         <h1 class="text-3xl font-black text-${color}">${COMPANY_INFO.name}</h1>
                         <p class="text-xs font-bold text-muted uppercase tracking-widest mt-1">${COMPANY_INFO.address}</p>
                     </div>
-                    <div class="text-right">
-                        <div class="bg-gray-50 p-3 rounded-2xl inline-block border">
-                            <p class="text-[9px] font-black opacity-40 uppercase mb-1">Contrato</p>
-                            <h2 class="text-xl font-black">#${c.contractNumber}</h2>
-                        </div>
-                    </div>
+                    <div class="text-right"><div class="bg-gray-50 p-3 rounded-2xl inline-block border"><p class="text-[9px] font-black opacity-40 uppercase mb-1">Contrato</p><h2 class="text-xl font-black">#${c.contractNumber}</h2></div></div>
                 </div>
-
                 <div class="grid grid-cols-2 gap-8">
-                    <div>
-                        <h4 class="text-[10px] font-black opacity-30 uppercase tracking-widest mb-4">Arrendatario</h4>
-                        <p class="font-extrabold text-lg">${c.firstName} ${c.lastName}</p>
-                        <p class="text-sm opacity-60">${c.email}</p>
-                        <p class="text-sm opacity-60">${c.phone}</p>
-                    </div>
-                    <div>
-                        <h4 class="text-[10px] font-black opacity-30 uppercase tracking-widest mb-4">Servicio</h4>
-                        <p class="font-extrabold text-lg">${c.product}</p>
-                        <p class="text-sm opacity-60">${c.start_date} @ ${c.start_time}</p>
-                    </div>
+                    <div><h4 class="text-[10px] font-black opacity-30 uppercase tracking-widest mb-4">Arrendatario</h4><p class="font-extrabold text-lg">${c.firstName} ${c.lastName}</p><p class="text-sm opacity-60">${c.email}</p><p class="text-sm opacity-60">${c.phone}</p></div>
+                    <div><h4 class="text-[10px] font-black opacity-30 uppercase tracking-widest mb-4">Servicio</h4><p class="font-extrabold text-lg">${c.product}</p><p class="text-sm opacity-60">${c.start_date} @ ${c.start_time}</p></div>
                 </div>
-
-                <div class="bg-gray-50 p-6 rounded-2xl flex justify-between items-center">
-                    <div>
-                        <p class="text-[10px] font-black opacity-40 uppercase">Total Pagado</p>
-                        <p class="text-xs opacity-60 italic">I.V.A Incluido (21%)</p>
-                    </div>
-                    <h3 class="text-4xl font-black text-${color}">€${c.total.toFixed(2)}</h3>
-                </div>
-
-                <div class="text-center pt-8 border-t">
-                    <div id="qr-invoice" class="inline-block p-2 bg-gray-50 rounded-2xl border"></div>
-                    <p class="text-[8px] font-bold opacity-30 uppercase tracking-[0.3em] mt-4">Verificación Digital EcoRent</p>
-                </div>
+                <div class="bg-gray-50 p-6 rounded-2xl flex justify-between items-center"><div><p class="text-[10px] font-black opacity-40 uppercase">Total Pagado</p><p class="text-xs opacity-60 italic">I.V.A Incluido (21%)</p></div><h3 class="text-4xl font-black text-${color}">€${c.total.toFixed(2)}</h3></div>
+                <div class="text-center pt-8 border-t"><div id="qr-invoice" class="inline-block p-2 bg-gray-50 rounded-2xl border"></div><p class="text-[8px] font-bold opacity-30 uppercase tracking-[0.3em] mt-4">Verificación Digital EcoRent</p></div>
             </div>
         </div>
     `;
-    
     if (window.lucide) window.lucide.createIcons();
-    setTimeout(() => {
-        new QRCode(document.getElementById('qr-invoice'), { text: c.id, width: 80, height: 80 });
-    }, 100);
+    setTimeout(() => { new QRCode(document.getElementById('qr-invoice'), { text: c.id, width: 80, height: 80 }); }, 100);
 };
 
 window.downloadPDF = (id: string) => {
@@ -482,84 +522,34 @@ window.shareWhatsApp = (id: string) => {
     if (c) window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}?text=Hola ${c.firstName}, aquí tienes tu contrato EcoRent #${c.contractNumber} por €${c.total.toFixed(2)}.`, '_blank');
 };
 
-const Dashboard = () => `
-    <div class="space-y-12 animate-fade-in">
-        <div class="flex justify-between items-end">
-            <div>
-                <h1 class="text-5xl font-black tracking-tighter">EcoManager</h1>
-                <p class="text-muted font-bold mt-2">Bienvenido, <span class="text-primary">${COMPANY_INFO.owner}</span></p>
-            </div>
-            <div class="card p-6 border-l-8 border-primary"><p class="text-[10px] font-black opacity-40 uppercase tracking-widest">Ingresos</p><p class="text-3xl font-black">€${state.contracts.reduce((a, b) => a + b.total, 0).toFixed(2)}</p></div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <button onclick="window.navigate('vehicles')" class="card p-10 group hover:bg-red-600 hover:text-white transition-all duration-300 flex flex-col items-center gap-4"><div class="bg-red-50 p-6 rounded-3xl text-red-600 group-hover:bg-white/20 group-hover:text-white transition-all"><i data-lucide="car" class="w-10 h-10"></i></div><span class="font-black text-xl">Vehículos</span></button>
-            <button onclick="window.navigate('bikes')" class="card p-10 group hover:bg-primary hover:text-white transition-all duration-300 flex flex-col items-center gap-4"><div class="bg-green-50 p-6 rounded-3xl text-primary group-hover:bg-white/20 group-hover:text-white transition-all"><i data-lucide="bike" class="w-10 h-10"></i></div><span class="font-black text-xl">Bicicletas</span></button>
-            <button onclick="window.navigate('tours')" class="card p-10 group hover:bg-blue-600 hover:text-white transition-all duration-300 flex flex-col items-center gap-4"><div class="bg-blue-50 p-6 rounded-3xl text-blue-600 group-hover:bg-white/20 group-hover:text-white transition-all"><i data-lucide="map" class="w-10 h-10"></i></div><span class="font-black text-xl">Excursiones</span></button>
-        </div>
-    </div>
-`;
-
-const HistoryView = () => `
-    <div class="space-y-6 animate-fade-in">
-        <h2 class="text-3xl font-black tracking-tight">Registro de Alquileres</h2>
-        <div class="space-y-4">
-            ${state.contracts.slice().reverse().map(c => `
-                <div class="card p-6 flex justify-between items-center hover:scale-[1.01] transition-all cursor-pointer border-l-4 ${c.module === 'vehicle' ? 'border-red-500' : (c.module === 'bike' ? 'border-primary' : 'border-blue-500')}">
-                    <div onclick="window.viewInvoice('${c.id}')" class="flex-1">
-                        <p class="font-black">#${c.contractNumber} — ${c.firstName} ${c.lastName}</p>
-                        <p class="text-xs opacity-50 uppercase font-bold mt-1">${c.createdAt} • ${c.product}</p>
-                    </div>
-                    <div class="flex gap-4">
-                        <button onclick="window.editContract('${c.id}')" class="text-blue-400 hover:text-blue-600"><i data-lucide="edit-3"></i></button>
-                        <button onclick="window.deleteContract('${c.id}')" class="text-red-300 hover:text-red-500"><i data-lucide="trash-2"></i></button>
-                    </div>
-                </div>
-            `).join('')}
-            ${state.contracts.length === 0 ? '<div class="card p-20 text-center text-muted italic">No hay registros almacenados.</div>' : ''}
-        </div>
-    </div>
-`;
-
-const ExportView = () => `
-    <div class="space-y-8 animate-fade-in">
-        <div class="flex flex-col md:flex-row justify-between items-center gap-4">
-            <h2 class="text-3xl font-black tracking-tight">Exportación & Nube</h2>
-            <button onclick="window.syncAllToCloud()" id="sync-all-btn" class="bg-primary text-white px-8 py-4 rounded-2xl font-black shadow-xl hover:scale-105 transition-all">Enviar al excel nube</button>
-        </div>
-        <div class="card overflow-hidden">
-            <table class="w-full text-xs text-left border-collapse">
-                <thead class="bg-gray-50 border-b font-black uppercase text-muted tracking-tighter">
-                    <tr><th class="p-4">Contrato</th><th class="p-4">Fecha</th><th class="p-4">Cliente</th><th class="p-4">Total</th><th class="p-4 text-center">Acción</th></tr>
-                </thead>
-                <tbody class="divide-y">
-                    ${state.contracts.map(c => `
-                        <tr class="hover:bg-gray-50/50">
-                            <td class="p-4 font-bold text-primary">#${c.contractNumber}</td>
-                            <td class="p-4">${c.createdAt}</td>
-                            <td class="p-4">${c.firstName} ${c.lastName}</td>
-                            <td class="p-4 font-black">€${c.total.toFixed(2)}</td>
-                            <td class="p-4 text-center"><button onclick="window.editContract('${c.id}')" class="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><i data-lucide="edit-3" class="w-4 h-4"></i></button></td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        </div>
-    </div>
-`;
-
 const CatalogView = () => `
     <div class="space-y-8 animate-fade-in">
-        <h2 class="text-3xl font-black tracking-tight">Catálogo de Servicios</h2>
+        <div class="flex justify-between items-center">
+            <h2 class="text-3xl font-black tracking-tight">Catálogo de Servicios</h2>
+            <button onclick="window.toggleCatalogEdit()" class="btn-icon bg-primary text-white p-3 rounded-xl shadow-lg">
+                <i data-lucide="${state.catalogEditMode ? 'check' : 'edit-3'}" class="w-5 h-5"></i>
+            </button>
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            ${CATALOG.categories.map(cat => `
-                <div class="card p-6">
-                    <h3 class="font-black border-b pb-3 mb-4 text-primary">${cat.name}</h3>
-                    <div class="space-y-2">
-                        ${CATALOG.products.filter(p => p.cat === cat.id).map(p => `
-                            <div class="flex justify-between text-sm">
-                                <span class="font-medium opacity-70">${p.name}</span>
-                                <span class="font-black text-primary">€${p.price}</span>
+            ${state.catalog.categories.map((cat: any) => `
+                <div class="card p-6 border-l-4 border-primary">
+                    <h3 class="font-black border-b pb-3 mb-4 text-primary flex justify-between items-center">
+                        ${cat.name}
+                        <span class="text-[9px] opacity-40 uppercase font-black tracking-widest">${cat.module}</span>
+                    </h3>
+                    <div class="space-y-4">
+                        ${state.catalog.products.filter((p: any) => p.cat === cat.id).map((p: any) => `
+                            <div class="flex flex-col gap-1">
+                                <div class="flex justify-between text-sm items-center">
+                                    <span class="font-medium opacity-70">${p.name}</span>
+                                    ${state.catalogEditMode 
+                                        ? `<div class="flex items-center gap-1">
+                                            <span class="text-xs font-bold text-primary">€</span>
+                                            <input type="number" value="${p.price}" onchange="window.updateCatalogPrice('${p.id}', this.value)" class="w-16 px-2 py-1 bg-gray-50 border rounded text-right font-black text-primary">
+                                          </div>`
+                                        : `<span class="font-black text-primary">€${p.price}</span>`
+                                    }
+                                </div>
                             </div>
                         `).join('')}
                     </div>
@@ -569,19 +559,98 @@ const CatalogView = () => `
     </div>
 `;
 
+const HistoryView = () => `
+    <div class="space-y-6 animate-fade-in">
+        <h2 class="text-3xl font-black tracking-tight">Registro de Alquileres</h2>
+        <div class="space-y-4">
+            ${state.contracts.filter(c => !c.deleted).slice().reverse().map(c => `
+                <div class="card p-6 flex justify-between items-center border-l-4 ${c.module === 'vehicle' ? 'border-red-500' : (c.module === 'bike' ? 'border-primary' : 'border-blue-500')}">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2">
+                            <p class="font-black">#${c.contractNumber} — ${c.firstName} ${c.lastName}</p>
+                            ${c.synced ? `<i data-lucide="cloud-check" class="w-3 h-3 text-green-500"></i>` : ''}
+                        </div>
+                        <p class="text-xs opacity-50 uppercase font-bold mt-1">${c.createdAt} • ${c.product}</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="window.viewInvoice('${c.id}')" class="p-2 text-green-600 hover:bg-green-50 rounded-lg"><i data-lucide="eye" class="w-5 h-5"></i></button>
+                        <button onclick="window.editContract('${c.id}')" class="p-2 text-blue-400 hover:bg-blue-50 rounded-lg"><i data-lucide="edit-3" class="w-5 h-5"></i></button>
+                        <button onclick="window.deleteContract('${c.id}')" class="p-2 text-red-300 hover:bg-red-50 rounded-lg"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+                    </div>
+                </div>
+            `).join('')}
+            ${state.contracts.filter(c => !c.deleted).length === 0 ? '<div class="card p-20 text-center text-muted italic">No hay registros activos.</div>' : ''}
+        </div>
+    </div>
+`;
+
+const ExportView = () => `
+    <div class="space-y-8 animate-fade-in">
+        <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h2 class="text-3xl font-black tracking-tight">Exportación & Nube</h2>
+                <p class="text-xs text-muted font-bold">${state.contracts.filter(c => !c.synced).length} pendientes de subir.</p>
+            </div>
+            <button onclick="window.syncAllToCloud()" id="sync-all-btn" class="bg-primary text-white px-8 py-4 rounded-2xl font-black shadow-xl hover:scale-105 transition-all">Enviar al excel nube</button>
+        </div>
+        <div class="card overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs text-left border-collapse">
+                    <thead class="bg-gray-50 border-b font-black uppercase text-muted tracking-tighter">
+                        <tr><th class="p-4">Contrato</th><th class="p-4">Fecha</th><th class="p-4">Cliente</th><th class="p-4">Estado</th><th class="p-4 text-center">Acción</th></tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        ${state.contracts.slice().reverse().map(c => `
+                            <tr class="hover:bg-gray-50/50 ${c.deleted ? 'opacity-50 grayscale' : ''}">
+                                <td class="p-4 font-bold text-primary">#${c.contractNumber}</td>
+                                <td class="p-4">${c.createdAt}</td>
+                                <td class="p-4">${c.firstName} ${c.lastName}</td>
+                                <td class="p-4">
+                                    <div class="flex flex-col gap-1">
+                                        ${c.synced 
+                                            ? `<span class="bg-green-50 text-green-600 px-2 py-1 rounded-full text-[10px] font-black border border-green-200 inline-block w-fit">EN NUBE</span>`
+                                            : `<span class="bg-yellow-50 text-yellow-600 px-2 py-1 rounded-full text-[10px] font-black border border-yellow-200 inline-block w-fit">PENDIENTE</span>`
+                                        }
+                                        ${c.deleted ? `<span class="bg-red-50 text-red-600 px-2 py-0.5 rounded-full text-[9px] font-black border border-red-200 inline-block w-fit">ELIMINADO</span>` : ''}
+                                    </div>
+                                </td>
+                                <td class="p-4">
+                                    <div class="flex justify-center gap-2">
+                                        <button onclick="window.viewInvoice('${c.id}')" class="p-2 text-green-500 hover:bg-green-50 rounded-lg"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                                        ${!c.deleted ? `<button onclick="window.editContract('${c.id}')" class="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><i data-lucide="edit-3" class="w-4 h-4"></i></button>` : ''}
+                                    </div>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            ${state.contracts.length === 0 ? '<div class="p-10 text-center text-muted italic">Sin datos.</div>' : ''}
+        </div>
+    </div>
+`;
+
+const Dashboard = () => `
+    <div class="space-y-12 animate-fade-in">
+        <div class="flex justify-between items-end">
+            <div><h1 class="text-5xl font-black tracking-tighter">EcoManager</h1><p class="text-muted font-bold mt-2">Bienvenido, <span class="text-primary">${COMPANY_INFO.owner}</span></p></div>
+            <div class="card p-6 border-l-8 border-primary"><p class="text-[10px] font-black opacity-40 uppercase tracking-widest">Ingresos</p><p class="text-3xl font-black">€${state.contracts.filter(c => !c.deleted).reduce((a, b) => a + b.total, 0).toFixed(2)}</p></div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <button onclick="window.navigate('vehicles')" class="card p-10 group hover:bg-red-600 hover:text-white transition-all duration-300 flex flex-col items-center gap-4"><div class="bg-red-50 p-6 rounded-3xl text-red-600 group-hover:bg-white/20 group-hover:text-white transition-all"><i data-lucide="car" class="w-10 h-10"></i></div><span class="font-black text-xl">Vehículos</span></button>
+            <button onclick="window.navigate('bikes')" class="card p-10 group hover:bg-primary hover:text-white transition-all duration-300 flex flex-col items-center gap-4"><div class="bg-green-50 p-6 rounded-3xl text-primary group-hover:bg-white/20 group-hover:text-white transition-all"><i data-lucide="bike" class="w-10 h-10"></i></div><span class="font-black text-xl">Bicicletas</span></button>
+            <button onclick="window.navigate('tours')" class="card p-10 group hover:bg-blue-600 hover:text-white transition-all duration-300 flex flex-col items-center gap-4"><div class="bg-blue-50 p-6 rounded-3xl text-blue-600 group-hover:bg-white/20 group-hover:text-white transition-all"><i data-lucide="map" class="w-10 h-10"></i></div><span class="font-black text-xl">Excursiones</span></button>
+        </div>
+    </div>
+`;
+
 function render() {
     const container = document.getElementById('view-container');
     if (!container) return;
-    
     if (state.editingId) {
         const c = state.contracts.find(x => x.id === state.editingId);
-        if (c) {
-            container.innerHTML = CommonAlquilerForm(c.module, c);
-            if (window.lucide) window.lucide.createIcons();
-            return;
-        }
+        if (c) { container.innerHTML = CommonAlquilerForm(c.module, c); if (window.lucide) window.lucide.createIcons(); return; }
     }
-
     switch (state.currentView) {
         case 'dashboard': container.innerHTML = Dashboard(); break;
         case 'vehicles': container.innerHTML = CommonAlquilerForm('vehicle'); break;
